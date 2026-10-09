@@ -1,0 +1,1252 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laboratorio Virtual de la Luz | Óptica Geométrica</title>
+    
+    <!-- Tailwind CSS (Framework de Diseño) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- MathJax (Para renderizar ecuaciones LaTeX) -->
+    <script>
+        MathJax = {
+            tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
+            svg: { fontCache: 'global' }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; min-height: 0; background-color: #0f172a; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #38bdf8; border-radius: 4px; }
+        
+        .glass-panel { background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        
+        /* Gestión de la superposición de capas */
+        #opticsCanvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; cursor: crosshair; touch-action: none; pointer-events: auto; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; min-height: 0; z-index: 2; pointer-events: none; display: flex; flex-direction: column; }
+        main { min-height: 0; }
+        #teoria, #quiz, #datos { height: 100%; min-height: 0; box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+        #quiz { position: relative; width: 100%; }
+        #quiz button { cursor: pointer; }
+        #quiz input[type="radio"] { accent-color: #38bdf8; }
+        #datos .miku-save-guide { height: min(76vh, 690px); max-width: 100%; }
+        #quizMikuPanel { align-self: flex-start; height: fit-content; justify-content: flex-start; gap: .25rem; }
+        #quizMikuPanel img { object-position: center top; display: block; margin-top: 1rem; }
+        @media (max-width: 767px) {
+            #datos .miku-save-guide { height: min(48vh, 390px); max-width: 92%; }
+            #quizMikuPanel img { max-height: 320px; width: auto; max-width: 100%; }
+            #datos .glass-panel { padding: 1.25rem; }
+            #datos > div { gap: .5rem; }
+            #datos > div > div:last-child { min-height: 260px; }
+        }
+        .pointer-events-auto { pointer-events: auto; }
+        nav, main { position: relative; z-index: 1; }
+        #simulador { isolation: isolate; }
+        #simulador > .absolute { pointer-events: auto; }
+        
+        /* Contenido de las pestañas */
+        .tab-content { display: none; width: 100%; height: 100%; overflow-y: auto; background-color: #0f172a; }
+        .tab-content.active { display: block; }
+        #simulador.tab-content { background-color: transparent; overflow: hidden; } 
+        
+        .nav-btn.active { border-bottom: 2px solid #38bdf8; color: #38bdf8; }
+        
+        /* Estilizar sliders y color picker */
+        input[type=range] { accent-color: #38bdf8; cursor: pointer; }
+        #undoBtn:disabled, #redoBtn:disabled { opacity:.35; cursor:not-allowed; }
+        input[type="color"] { -webkit-appearance: none; border: none; padding: 0; }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: 2px solid #334155; border-radius: 6px; }
+    </style>
+</head>
+<body class="text-gray-200 select-none">
+
+    <!-- CANVAS DEL MOTOR FÍSICO (Fondo) -->
+    <canvas id="opticsCanvas"></canvas>
+
+    <!-- CAPA DE INTERFAZ DE USUARIO (Frente) -->
+    <div id="ui-layer">
+        
+        <!-- BARRA DE NAVEGACIÓN Y TÍTULO DEL LABORATORIO -->
+        <nav class="bg-slate-900/95 border-b border-slate-700 flex flex-wrap justify-between items-center gap-4 px-6 py-3 shadow-lg pointer-events-auto shrink-0">
+            <div class="flex items-center gap-3 min-w-0">
+                <img src="logo_laboratorio.png" alt="Logo del Laboratorio Virtual de la Luz" class="w-12 h-12 object-contain shrink-0" style="background: transparent;" />
+                <div class="min-w-0">
+                    <h1 class="text-lg md:text-xl font-extrabold text-white tracking-wide leading-tight">LABORATORIO VIRTUAL DE LA LUZ</h1>
+                    <p class="text-sm md:text-base font-semibold text-sky-400 mt-1">Simulador Óptica geométrica</p>
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-3 md:gap-6 text-sm md:text-base font-semibold">
+                <button onclick="switchTab('simulador')" id="tab-simulador" class="nav-btn active pb-1 hover:text-sky-400 transition">Simulador</button>
+                <button onclick="switchTab('teoria')" id="tab-teoria" class="nav-btn pb-1 hover:text-sky-400 transition">Teoría</button>
+                <button onclick="switchTab('datos')" id="tab-datos" class="nav-btn pb-1 hover:text-sky-400 transition">Guardar/Cargar</button>
+                <button onclick="switchTab('quiz')" id="tab-quiz" class="nav-btn pb-1 hover:text-sky-400 transition">Evaluación</button>
+            </div>
+        </nav>
+
+        <!-- Contenedor ajustado con overflow-hidden para activar las barras de scroll internas -->
+        <main class="flex-1 relative overflow-hidden">
+            
+            <!-- 1. SIMULADOR -->
+            <div id="simulador" class="tab-content active relative pointer-events-none">
+                
+                <!-- Barra Superior: Escenarios Rápidos, Ajustes, Limpiar y Flechas -->
+                <div class="absolute top-4 left-1/2 transform -translate-x-1/2 flex flex-wrap justify-center items-center gap-2 glass-panel px-4 py-2 rounded-full shadow-xl z-20 text-sm pointer-events-auto w-max max-w-[95vw]">
+                    <span class="text-slate-400 font-bold mr-1 hidden md:inline">Ejemplos:</span>
+                    <button onclick="app.loadPreset('snell')" class="px-2 py-1 hover:bg-slate-700 rounded text-teal-300 transition">Ley Snell</button>
+                    <button onclick="app.loadPreset('lens')" class="px-2 py-1 hover:bg-slate-700 rounded text-teal-300 transition">Lentes</button>
+                    <button onclick="app.loadPreset('mirror')" class="px-2 py-1 hover:bg-slate-700 rounded text-teal-300 transition">Espejos</button>
+                    <button onclick="app.loadPreset('rgb')" class="px-2 py-1 hover:bg-slate-700 rounded text-rose-300 transition">Láseres RGB</button>
+                    
+                    <div class="w-px h-5 bg-slate-600 mx-1"></div>
+                    
+                    <button onclick="app.toggleAnimation()" id="btnAnim" class="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded text-white font-bold transition">⏸ Pausar Luz</button>
+                    <button onclick="app.toggleSettings()" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-white transition">⚙ Ajustes</button>
+                    <button onclick="app.clearScene()" class="px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-white font-bold transition shadow-lg shadow-red-500/20">🗑 Limpiar Todo</button>
+                    
+                    <div class="w-px h-5 bg-slate-600 mx-1"></div>
+                    
+                    <button id="undoBtn" onclick="app.undo()" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-white font-bold transition" title="Deshacer (Ctrl+Z)">↶</button>
+                    <button id="redoBtn" onclick="app.redo()" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-white font-bold transition" title="Rehacer (Ctrl+Y)">↷</button>
+                </div>
+
+                <!-- Herramientas (Izquierda) -->
+                <div class="absolute top-4 left-4 flex flex-col gap-2 glass-panel p-3 rounded-xl shadow-xl w-44 pointer-events-auto max-h-[85vh] overflow-y-auto z-30 relative">
+                    <div class="text-[10px] font-bold text-slate-400 mb-1 border-b border-slate-600 pb-1 uppercase tracking-wider">Fuentes de Luz</div>
+                    <button onclick="app.addTool('ray')" onmouseenter="app.showTooltip('ray', event)" onmouseleave="app.hideTooltip()" class="p-2 text-left bg-slate-800 hover:bg-rose-600 rounded text-sm transition">➜ Rayo Único</button>
+                    <button onclick="app.addTool('beam')" onmouseenter="app.showTooltip('beam', event)" onmouseleave="app.hideTooltip()" class="p-2 text-left bg-slate-800 hover:bg-rose-600 rounded text-sm transition">⇶ Haz Paralelo</button>
+                    <button onclick="app.addTool('point')" onmouseenter="app.showTooltip('point', event)" onmouseleave="app.hideTooltip()" class="p-2 text-left bg-slate-800 hover:bg-rose-600 rounded text-sm transition">☼ Emisor 360°</button>
+                    <button onclick="app.addTool('point_angle')" onmouseenter="app.showTooltip('point_angle', event)" onmouseleave="app.hideTooltip()" class="p-2 text-left bg-slate-800 hover:bg-rose-600 rounded text-sm transition">◴ Emisor &lt;360°</button>
+                    
+                    <div class="text-[10px] font-bold text-slate-400 mt-2 mb-1 border-b border-slate-600 pb-1 uppercase tracking-wider">Reflectores</div>
+                    <button onclick="app.addTool('mirror')" onmouseenter="app.showTooltip('mirror', event)" onmouseleave="app.hideTooltip()" class="p-2 text-left bg-slate-800 hover:bg-slate-600 rounded text-sm transition">| Espejo Plano</button>
+                    <button onclick="app.addTool('arc_mirror')" onmouseenter="app.showTooltip('arc_mirror', event)" onmouseleave="app.hideTooltip()" class="p-2 text-left bg-slate-800 hover:bg-slate-600 rounded text-sm transition">) Espejo Curvo</button>
+                    <button onclick="app.addTool('splitter')" onmouseenter="app.showTooltip('splitter', event)" onmouseleave="app.hideTooltip()" class="p-2 text-left bg-slate-800 hover:bg-indigo-600 rounded text-sm transition">◩ Divisor 50/50</button>
+                    
+                    <div class="text-[10px] font-bold text-slate-400 mt-2 mb-1 border-b border-slate-600 pb-1 uppercase tracking-wider">Lentes / Medios</div>
+                    <button onclick="app.addTool('glass')" onmouseenter="app.showTooltip('glass', event)" onmouseleave="app.hideTooltip()" class="p-2 text-left bg-slate-800 hover:bg-sky-600 rounded text-sm transition">⬛ Bloque Vidrio</button>
+                    <button onclick="app.addTool('blocker')" onmouseenter="app.showTooltip('blocker', event)" onmouseleave="app.hideTooltip()" class="p-2 text-left bg-slate-800 hover:bg-slate-600 rounded text-sm transition">▰ Bloqueador de luz</button>
+                    <button onclick="app.addTool('lens_convex')" onmouseenter="app.showTooltip('lens_convex', event)" onmouseleave="app.hideTooltip()" class="p-2 text-left bg-slate-800 hover:bg-sky-600 rounded text-sm transition">() Lente Conv.</button>
+                    <button onclick="app.addTool('lens_concave')" onmouseenter="app.showTooltip('lens_concave', event)" onmouseleave="app.hideTooltip()" class="p-2 text-left bg-slate-800 hover:bg-sky-600 rounded text-sm transition">)( Lente Div.</button>
+
+                    <div class="text-[10px] font-bold text-amber-300 mt-3 mb-1 border-b border-slate-600 pb-1 uppercase tracking-wider">Otros</div>
+                    <button onclick="app.addTool('ruler')" onmouseenter="app.showTooltip('ruler', event)" onmouseleave="app.hideTooltip()" class="p-2 text-left bg-slate-800 hover:bg-amber-700 rounded text-sm transition">📏 Regla (100 en 100)</button>
+                    <button onclick="app.addTool('protractor')" onmouseenter="app.showTooltip('protractor', event)" onmouseleave="app.hideTooltip()" class="p-2 text-left bg-slate-800 hover:bg-amber-700 rounded text-sm transition">📐 Transportador 360°</button>
+                </div>
+
+                <!-- PANEL FLOTANTE DE INFORMACIÓN (TOOLTIP) -->
+                <div id="toolInfoPanel" class="absolute left-52 w-64 glass-panel p-4 rounded-xl shadow-2xl pointer-events-none hidden transition-opacity duration-200 opacity-0 z-40 border-l-4 border-l-sky-500">
+                    <h4 id="toolInfoTitle" class="font-bold text-white mb-2 text-sm uppercase tracking-wide">Herramienta</h4>
+                    <p id="toolInfoDesc" class="text-xs text-slate-300 leading-relaxed">Descripción aquí.</p>
+                </div>
+
+                <!-- Ajustes visuales -->
+                <div id="settingsPanel" class="absolute top-16 right-4 w-64 glass-panel p-4 rounded-xl shadow-xl pointer-events-auto hidden max-h-[75vh] overflow-y-auto z-30">
+                    <h3 class="font-bold text-white border-b border-slate-600 pb-2 mb-3">Ajustes de escena</h3>
+                    <label class="flex items-center justify-between gap-3 text-sm mb-3"><span>Mostrar flechas de rayos</span><input id="showRayArrows" type="checkbox" checked onchange="app.showRayArrows=this.checked"></label>
+                    <label class="flex items-center justify-between gap-3 text-sm mb-3"><span>Mostrar cuadrícula</span><input id="showGrid" type="checkbox" checked onchange="app.showGrid=this.checked"></label>
+                    <label class="flex items-center justify-between gap-3 text-sm mb-3"><span>Resplandor</span><input id="rayGlow" type="checkbox" checked onchange="app.rayGlow=this.checked"></label>
+                    <label class="block text-sm mb-1">Brillo de la luz <span id="brightnessValue" class="text-sky-300">100%</span></label>
+                    <input id="rayBrightness" class="w-full mb-3" type="range" min="10" max="200" step="10" value="100" oninput="app.rayBrightness=Number(this.value)/100;document.getElementById('brightnessValue').innerText=this.value+'%'">
+                    <label class="block text-sm mb-1">Tamaño de cuadrícula <span id="gridSizeValue" class="text-sky-300">50 px</span></label>
+                    <input class="w-full mb-3" type="range" min="10" max="100" step="5" value="50" oninput="app.gridSize=+this.value;document.getElementById('gridSizeValue').innerText=this.value+' px'">
+                    <label class="block text-sm mb-1">Densidad del haz <span id="beamDensityValue" class="text-sky-300">11</span></label>
+                    <input class="w-full mb-3" type="range" min="3" max="31" step="2" value="11" oninput="app.beamDensity=+this.value;document.getElementById('beamDensityValue').innerText=this.value">
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="app.zoomBy(1.2)" class="p-2 bg-slate-700 hover:bg-slate-600 rounded text-sm">＋ Acercar</button>
+                        <button onclick="app.zoomBy(0.83)" class="p-2 bg-slate-700 hover:bg-slate-600 rounded text-sm">－ Alejar</button>
+                        <button onclick="app.resetView()" class="col-span-2 p-2 bg-sky-700 hover:bg-sky-600 rounded text-sm">Restablecer vista</button>
+                    </div>
+                </div>
+
+                <!-- Panel de Propiedades Derecha -->
+                <div id="propertiesPanel" class="absolute top-4 right-4 w-72 glass-panel p-5 rounded-xl shadow-xl pointer-events-auto hidden max-h-[85vh] overflow-y-auto z-20">
+                    <h3 class="font-bold text-white border-b border-slate-600 pb-2 mb-4">Propiedades del Objeto</h3>
+                    <div id="prop-controls" class="flex flex-col gap-4 text-sm">
+                        <!-- Generado por JS -->
+                    </div>
+                    <button onclick="app.deleteSelected()" class="mt-6 w-full p-2 bg-red-600 hover:bg-red-500 rounded text-white font-bold transition shadow-lg">Eliminar Objeto</button>
+                </div>
+                
+                <!-- Explicación en vivo de los fenómenos ópticos -->
+                <div id="opticsInfo" class="absolute bottom-4 right-4 w-96 max-w-[calc(100vw-2rem)] glass-panel p-4 rounded-xl shadow-xl pointer-events-auto text-xs max-h-[38vh] overflow-y-auto z-10">
+                    <div class="flex items-center justify-between gap-2 mb-2">
+                        <h3 class="font-bold text-sky-300 text-sm">Fenómeno óptico aplicado</h3>
+                        <span id="opticsEventStatus" class="text-amber-300 text-right">Sin interacción detectada</span>
+                    </div>
+                    <p id="opticsInfoText" class="text-slate-200 leading-relaxed">Coloca una fuente de luz y pon un espejo, vidrio, lente o bloqueador en su trayectoria. Aquí aparecerá el fenómeno que se está aplicando.</p>
+                    <div class="mt-3 pt-2 border-t border-slate-600 text-slate-400">El simulador registra el último choque detectado y resume los fenómenos que ocurren durante el trazado.</div>
+                </div>
+
+                <!-- Ayuda (Abajo) -->
+                <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 glass-panel px-6 py-2 rounded-full text-xs text-slate-300 shadow-xl flex gap-4 items-center pointer-events-auto">
+                    <span>🖐 <b>Arrastra el fondo:</b> Paneo</span> | 
+                    <span>🖱 <b>Rueda ratón:</b> Zoom</span> | 
+                    <span>🟠 <b>Punto Naranja o Barra Lateral:</b> Rotar</span>
+                </div>
+            </div>
+
+            <!-- ========================================== -->
+            <!-- 2. TEORÍA COMPLETA CON FÓRMULAS LATEX      -->
+            <!-- ========================================== -->
+            <div id="teoria" class="tab-content bg-slate-900 p-4 md:p-8 pointer-events-auto pb-20">
+                <div class="max-w-5xl mx-auto glass-panel p-5 md:p-10 rounded-2xl shadow-2xl mb-10">
+                    <h2 class="text-3xl md:text-4xl font-extrabold text-sky-400 mb-3 border-b border-sky-500/30 pb-4">Teoría: fundamentos de Óptica</h2>
+                    <p class="text-slate-400 text-base mb-8">Desplázate hacia abajo para consultar todos los temas. Las distancias deben expresarse en unidades compatibles.</p>
+                    <div class="space-y-9 text-slate-300 leading-relaxed text-base md:text-lg">
+                      <section><h3 class="text-2xl font-bold text-emerald-400 mb-3">1. Concepto de luz</h3>
+                        <p>La luz es radiación electromagnética que transporta energía y puede propagarse en el vacío. En óptica geométrica se representa mediante rayos que indican su dirección de propagación. En el vacío, su velocidad, frecuencia y longitud de onda se relacionan por:</p>
+                        <div class="bg-slate-800 p-4 rounded-lg text-center text-xl md:text-2xl my-3 text-white overflow-x-auto">$$c=f\lambda \qquad v=f\lambda$$</div>
+                        <ul class="list-disc pl-6 space-y-1 text-slate-400 text-sm md:text-base"><li><b>c:</b> velocidad de la luz en el vacío (≈ 3.00 × 10⁸ m/s).</li><li><b>v:</b> velocidad en el medio (m/s).</li><li><b>f:</b> frecuencia (Hz).</li><li><b>λ:</b> longitud de onda (m).</li></ul>
+                        <p class="mt-3"><b>Ejemplo:</b> si una luz tiene f = 5 × 10¹⁴ Hz, entonces λ = c/f ≈ 6 × 10⁻⁷ m = 600 nm, correspondiente a luz visible.</p>
+                      </section>
+                      <section><h3 class="text-2xl font-bold text-emerald-400 mb-3">2. Velocidad de la luz e índice de refracción</h3>
+                        <p>La luz alcanza su máxima velocidad en el vacío; al entrar en materiales como agua o vidrio se propaga más lentamente. El índice de refracción compara ambas velocidades.</p>
+                        <div class="bg-slate-800 p-4 rounded-lg text-center text-xl md:text-2xl my-3 text-white overflow-x-auto">$$n=\frac{c}{v} \qquad v=\frac{c}{n}$$</div>
+                        <ul class="list-disc pl-6 space-y-1 text-slate-400 text-sm md:text-base"><li><b>n:</b> índice de refracción, sin unidades.</li><li><b>c:</b> velocidad en el vacío (m/s).</li><li><b>v:</b> velocidad en el material (m/s).</li></ul>
+                        <p class="mt-3"><b>Ejemplo:</b> en un vidrio con n = 1.5, v = (3.00 × 10⁸)/1.5 = 2.00 × 10⁸ m/s.</p>
+                      </section>
+                      <section><h3 class="text-2xl font-bold text-emerald-400 mb-3">3. Reflexión y refracción</h3>
+                        <p><b>Reflexión:</b> la luz rebota en una superficie. La ley de reflexión indica que el ángulo de incidencia es igual al de reflexión; ambos se miden desde la normal, línea perpendicular a la superficie. <b>Refracción:</b> la luz cambia de velocidad y, generalmente, de dirección al pasar entre medios diferentes.</p>
+                        <div class="bg-slate-800 p-4 rounded-lg text-center text-xl md:text-2xl my-3 text-white overflow-x-auto">$$\theta_i=\theta_r \qquad n_1\sin\theta_1=n_2\sin\theta_2$$</div>
+                        <ul class="list-disc pl-6 space-y-1 text-slate-400 text-sm md:text-base"><li><b>θᵢ:</b> ángulo de incidencia; <b>θᵣ:</b> ángulo reflejado.</li><li><b>n₁, n₂:</b> índices de los medios inicial y final.</li><li><b>θ₁, θ₂:</b> ángulos de incidencia y refracción, medidos desde la normal.</li></ul>
+                        <p class="mt-3"><b>Ejemplo:</b> un rayo incide con 30° sobre un espejo plano y se refleja con 30°. Al pasar del aire al vidrio, la ley de Snell permite calcular el ángulo refractado.</p>
+                      </section>
+                      <section><h3 class="text-2xl font-bold text-emerald-400 mb-3">4. Fibra óptica</h3>
+                        <p>Una fibra óptica transmite información mediante pulsos de luz a través de un núcleo rodeado por un revestimiento de menor índice de refracción. La luz puede permanecer guiada por <b>reflexión interna total</b> cuando viaja del medio de mayor índice al de menor índice y supera el ángulo crítico.</p>
+                        <div class="bg-slate-800 p-4 rounded-lg text-center text-xl md:text-2xl my-3 text-white overflow-x-auto">$$\theta_c=\arcsin\left(\frac{n_2}{n_1}\right),\quad n_1>n_2$$</div>
+                        <ul class="list-disc pl-6 space-y-1 text-slate-400 text-sm md:text-base"><li><b>θc:</b> ángulo crítico.</li><li><b>n₁:</b> índice del núcleo; <b>n₂:</b> índice del revestimiento.</li></ul>
+                        <p class="mt-3"><b>Ejemplo/aplicación:</b> internet de alta velocidad y telecomunicaciones envían datos como pulsos luminosos con bajas pérdidas a grandes distancias.</p>
+                      </section>
+                      <section><h3 class="text-2xl font-bold text-emerald-400 mb-3">5. Espejos</h3>
+                        <p>Los espejos planos forman imágenes virtuales, derechas y del mismo tamaño. Los espejos esféricos pueden ser cóncavos (convergentes) o convexos (divergentes). La ecuación de espejo relaciona las distancias del objeto e imagen con la distancia focal.</p>
+                        <div class="bg-slate-800 p-4 rounded-lg text-center text-xl md:text-2xl my-3 text-white overflow-x-auto">$$\frac{1}{f}=\frac{1}{d_o}+\frac{1}{d_i}\qquad f=\frac{R}{2}$$</div>
+                        <ul class="list-disc pl-6 space-y-1 text-slate-400 text-sm md:text-base"><li><b>f:</b> distancia focal; <b>do:</b> distancia del objeto.</li><li><b>di:</b> distancia de la imagen; <b>R:</b> radio de curvatura.</li></ul>
+                        <p class="mt-3"><b>Ejemplo:</b> si f = 10 cm y do = 30 cm, 1/di = 1/10 − 1/30 = 1/15; por tanto, di = 15 cm (con la convención de signos habitual).</p>
+                      </section>
+                      <section><h3 class="text-2xl font-bold text-emerald-400 mb-3">6. Lentes</h3>
+                        <p>Las lentes refractan la luz. Las convergentes (convexas) concentran rayos paralelos en un foco; las divergentes (cóncavas) los separan. Para lentes delgadas se usa una ecuación similar a la de los espejos.</p>
+                        <div class="bg-slate-800 p-4 rounded-lg text-center text-xl md:text-2xl my-3 text-white overflow-x-auto">$$\frac{1}{f}=\frac{1}{d_o}+\frac{1}{d_i}\qquad m=-\frac{d_i}{d_o}$$</div>
+                        <ul class="list-disc pl-6 space-y-1 text-slate-400 text-sm md:text-base"><li><b>f:</b> distancia focal; <b>do:</b> distancia del objeto.</li><li><b>di:</b> distancia de la imagen; <b>m:</b> aumento lateral (sin unidades).</li></ul>
+                        <p class="mt-3"><b>Ejemplo:</b> una lente convergente con f = 10 cm y un objeto a 30 cm produce, con la convención usual, una imagen a 15 cm; el aumento es m = −15/30 = −0.5, invertida y de la mitad de tamaño.</p>
+                      </section>
+                      <section><h3 class="text-2xl font-bold text-emerald-400 mb-3">7. El telescopio</h3>
+                        <p>Un telescopio óptico utiliza un objetivo para recoger la luz de objetos lejanos y un ocular para observar la imagen. En el modelo astronómico sencillo, el aumento angular depende de las distancias focales del objetivo y del ocular.</p>
+                        <div class="bg-slate-800 p-4 rounded-lg text-center text-xl md:text-2xl my-3 text-white overflow-x-auto">$$M=-\frac{f_o}{f_e}$$</div>
+                        <ul class="list-disc pl-6 space-y-1 text-slate-400 text-sm md:text-base"><li><b>M:</b> aumento angular (el signo negativo indica imagen invertida en el modelo).</li><li><b>fo:</b> distancia focal del objetivo.</li><li><b>fe:</b> distancia focal del ocular.</li></ul>
+                        <p class="mt-3"><b>Ejemplo:</b> si fo = 600 mm y fe = 20 mm, M = −600/20 = −30; el telescopio ofrece un aumento angular de 30× y la imagen se observa invertida.</p>
+                      </section>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. DATOS -->
+            <div id="datos" class="tab-content bg-slate-900 p-5 md:p-8 pointer-events-auto flex justify-center items-center pt-6 md:pt-10">
+                <div class="w-full max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-center gap-5 md:gap-10">
+                    <div class="glass-panel p-6 md:p-8 rounded-2xl w-full max-w-md text-center space-y-5 shrink-0 relative z-10">
+                        <h2 class="text-3xl font-bold text-white border-b border-slate-600 pb-3">Guardar y Cargar Simulación</h2>
+                        <p class="text-slate-400">Guarda todos los objetos colocados, sus posiciones, tamaños, colores y orientación, la vista del simulador y la explicación del fenómeno óptico que aparece en pantalla. Después puedes cargar el archivo para continuar tu práctica.</p>
+                        <button onclick="app.saveScene()" class="w-full py-4 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-bold text-lg shadow-lg transition">Guardar escena editable (JSON)</button>
+                        <button onclick="app.saveNotes()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold shadow-lg transition">Guardar explicación y notas (TXT)</button>
+                        <button onclick="app.saveImage()" class="w-full py-3 bg-fuchsia-700 hover:bg-fuchsia-600 text-white rounded-lg font-bold shadow-lg transition">Exportar imagen de la simulación (PNG)</button>
+                        <div class="relative w-full">
+                            <input type="file" id="fileImport" accept=".json,application/json" class="hidden" onchange="app.loadScene(event)">
+                            <button onclick="document.getElementById('fileImport').click()" class="w-full py-4 bg-teal-600 hover:bg-teal-500 text-white rounded-lg font-bold text-lg shadow-lg transition">Cargar escena (JSON)</button>
+                        </div>
+                        <p class="text-xs text-slate-400 leading-relaxed">JSON permite volver a abrir y editar la escena. TXT guarda un reporte para leer o entregar. PNG guarda una imagen de los rayos y objetos visibles en el área de simulación.</p>
+                    </div>
+                    <div class="relative flex-1 min-w-0 w-full max-w-xl flex items-center justify-center self-stretch md:self-auto" aria-label="Miku te señala las opciones para guardar tu práctica">
+                        <div class="absolute top-2 right-2 md:top-6 md:right-0 z-10 max-w-[240px] rounded-2xl border border-sky-300/40 bg-slate-800/95 px-4 py-3 text-center text-sm md:text-base font-bold text-sky-100 shadow-xl">
+                            ¡Aquí puedes guardar tu práctica!<span class="absolute -left-2 bottom-5 h-4 w-4 rotate-45 border-l border-b border-sky-300/40 bg-slate-800/95"></span>
+                        </div>
+                        <img src="miku_guardado.png" alt="Miku sonriente señalando las opciones para guardar la simulación" class="miku-save-guide w-auto object-contain object-bottom drop-shadow-[0_0_28px_rgba(34,211,238,0.16)]" />
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. CUESTIONARIO -->
+            <div id="quiz" class="tab-content bg-slate-900 p-4 md:p-8 pointer-events-auto" aria-label="Evaluación teórica en esta misma ventana">
+              <div class="max-w-7xl mx-auto flex flex-col lg:flex-row gap-6 items-stretch">
+                <div class="flex-1 min-w-0 w-full glass-panel p-5 md:p-10 rounded-2xl shadow-2xl">
+                    <h2 class="text-3xl font-bold text-sky-400 mb-2">Evaluación Teórica</h2>
+                    <p class="text-slate-400 mb-4 pb-4 border-b border-slate-700">Contesta 5 preguntas aleatorias de un banco de 20. Toda la evaluación se realiza aquí mismo, dentro de esta pestaña; no abre otra ventana ni descarga otro archivo. El avance aumenta con cada respuesta, sea correcta o incorrecta.</p>
+                    <div class="mb-6"><div class="flex justify-between text-sm text-slate-400 mb-2"><span>Progreso de respuestas</span><span id="quizProgressText">0 de 5</span></div><div class="w-full h-3 rounded-full bg-slate-700 overflow-hidden"><div id="quizProgress" class="h-full bg-sky-400 rounded-full transition-all duration-300" style="width:0%"></div></div></div>
+                    <div id="quizContainer" class="space-y-6"></div>
+                    <button type="button" id="quizGradeBtn" onclick="quizEngine.grade()" class="mt-8 w-full py-4 bg-sky-600 hover:bg-sky-500 rounded-lg text-white font-bold text-xl shadow-lg transition">Ver resultado de evaluación</button>
+                    <button type="button" id="quizRepeatBtn" onclick="quizEngine.init()" class="mt-3 w-full py-3 bg-teal-700 hover:bg-teal-600 rounded-lg text-white font-bold hidden">Repetir con otras preguntas</button>
+                    <div id="quizResult" class="mt-6 text-center text-xl font-bold hidden p-6 rounded-lg transition-all"></div>
+                </div>
+                <aside id="quizMikuPanel" class="w-full lg:w-[330px] xl:w-[380px] shrink-0 self-start h-fit glass-panel rounded-2xl p-4 md:p-5 flex flex-col items-center justify-start text-center border border-cyan-400/20 shadow-xl">
+                    <div id="quizMikuBubble" class="w-full rounded-2xl border border-cyan-300/40 bg-slate-800 px-4 py-4 text-base md:text-lg font-bold text-cyan-100 shadow-lg transition-all">¡Ánimo! Tú puedes. Lee con calma y confía en lo que sabes.</div>
+                    <img id="quizMikuImage" src="miku_evaluacion.png" alt="Miku animándote durante la evaluación" class="w-full max-w-[290px] lg:max-w-full h-auto max-h-[48vh] lg:max-h-[58vh] object-contain object-top rounded-xl mt-4 flex-shrink-0" />
+                    <p class="text-slate-400 text-sm mt-3">¡Tú puedes lograrlo! Cada pregunta es una oportunidad para aprender.</p>
+                </aside>
+              </div>
+            </div>
+
+
+        </main>
+
+        <!-- AUTORÍA DEL PROYECTO -->
+        <footer class="shrink-0 text-center px-3 py-2 bg-slate-950 border-t border-slate-700 text-xs md:text-sm text-slate-300 pointer-events-auto">
+            Hecho por la alumna: <strong class="text-sky-300">Reyes López Ana Valeria</strong>
+        </footer>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- MOTOR DE RAYTRACING Y FÍSICA COMPUTACIONAL     -->
+    <!-- ============================================== -->
+    <script>
+        // 1. ÁLGEBRA LINEAL
+        class Vec2 {
+            constructor(x, y) { this.x = x; this.y = y; }
+            add(v) { return new Vec2(this.x + v.x, this.y + v.y); }
+            sub(v) { return new Vec2(this.x - v.x, this.y - v.y); }
+            mul(s) { return new Vec2(this.x * s, this.y * s); }
+            dot(v) { return this.x * v.x + this.y * v.y; }
+            cross(v) { return this.x * v.y - this.y * v.x; }
+            mag() { return Math.sqrt(this.x * this.x + this.y * this.y); }
+            norm() { let m = this.mag(); return m === 0 ? new Vec2(0,0) : new Vec2(this.x/m, this.y/m); }
+            dist(v) { return this.sub(v).mag(); }
+            rot(angle) { 
+                let c = Math.cos(angle), s = Math.sin(angle);
+                return new Vec2(this.x * c - this.y * s, this.x * s + this.y * c);
+            }
+        }
+
+        // 2. INTERSECCIONES Y LEYES ÓPTICAS
+        function intersectSegment(ray, p1, p2) {
+            const v1 = ray.o.sub(p1), v2 = p2.sub(p1), v3 = new Vec2(-ray.d.y, ray.d.x);
+            const dot = v2.dot(v3);
+            if (Math.abs(dot) < 1e-6) return null;
+            const t1 = v2.cross(v1) / dot;
+            const t2 = ray.d.cross(v1) / dot;
+            if (t1 > 1e-4 && t2 >= 0 && t2 <= 1) {
+                return { t: t1, p: ray.o.add(ray.d.mul(t1)), normal: new Vec2(-v2.y, v2.x).norm() };
+            }
+            return null;
+        }
+
+        function intersectArc(ray, center, r, angStart, angEnd) {
+            const oc = ray.o.sub(center);
+            const a = ray.d.dot(ray.d), b = 2.0 * oc.dot(ray.d), c = oc.dot(oc) - r * r;
+            const disc = b * b - 4 * a * c;
+            if (disc < 1e-5) return null;
+
+            let t1 = (-b - Math.sqrt(disc)) / (2.0 * a);
+            let t2 = (-b + Math.sqrt(disc)) / (2.0 * a);
+            let hits = [];
+            if (t1 > 1e-4) hits.push(t1);
+            if (t2 > 1e-4) hits.push(t2);
+
+            let bestHit = null;
+            for(let thit of hits) {
+                let p = ray.o.add(ray.d.mul(thit));
+                let angle = Math.atan2(p.y - center.y, p.x - center.x);
+                let t_ang = (angle + 4*Math.PI) % (2*Math.PI);
+                let s_ang = (angStart + 4*Math.PI) % (2*Math.PI);
+                let e_ang = (angEnd + 4*Math.PI) % (2*Math.PI);
+                let inRange = s_ang < e_ang ? (t_ang >= s_ang && t_ang <= e_ang) : (t_ang >= s_ang || t_ang <= e_ang);
+                
+                if(inRange && (!bestHit || thit < bestHit.t)) {
+                    bestHit = { t: thit, p: p, normal: p.sub(center).norm() };
+                }
+            }
+            return bestHit;
+        }
+
+        function refract(incident, normal, n1, n2) {
+            let n = n1 / n2;
+            let cosI = -incident.dot(normal);
+            let sinT2 = n * n * (1.0 - cosI * cosI);
+            if (sinT2 > 1.0) return null; // Reflexión Interna Total
+            let cosT = Math.sqrt(1.0 - sinT2);
+            return incident.mul(n).add(normal.mul(n * cosI - cosT));
+        }
+
+        function reflect(incident, normal) {
+            return incident.sub(normal.mul(2 * incident.dot(normal)));
+        }
+
+        // 3. OBJETOS
+        class OpticObj {
+            constructor(x, y) { 
+                this.pos = new Vec2(x, y); 
+                this.rot = 0; 
+                this.hitRadius = 40; 
+                this.type = 'light'; 
+                this.color = '#ffffff'; 
+            }
+            hitTest(x, y) {
+                const m = new Vec2(x, y);
+                const dist = this.pos.sub(m).mag();
+                if (this.type === 'arc_mirror') {
+                    const a = Math.atan2(y-this.pos.y, x-this.pos.x);
+                    const start = this.rot + Math.PI - this.angW;
+                    const end = this.rot + Math.PI + this.angW;
+                    const norm = v => ((v % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+                    const aa=norm(a), ss=norm(start), ee=norm(end);
+                    const inArc = ss <= ee ? aa >= ss && aa <= ee : aa >= ss || aa <= ee;
+                    return Math.abs(dist-this.R) < 24 || (inArc && Math.abs(dist-this.R) < 38) || dist < 24;
+                }
+                const radius = this.w ? Math.max(this.w/2, this.h ? this.h/2 : 0) : (this.R ? this.R+25 : 40);
+                return dist < Math.max(40, radius);
+            }
+            drawShape(ctx) {}
+            intersect(ray) { return null; }
+        }
+
+        class Mirror extends OpticObj {
+            constructor(x,y){ super(x,y); this.type='mirror'; this.w=140; this.hitRadius = 60; this.color = '#cbd5e1'; }
+            getSeg() { let d = new Vec2(this.w/2, 0).rot(this.rot); return { p1: this.pos.sub(d), p2: this.pos.add(d) }; }
+            intersect(ray) { let s=this.getSeg(), hit=intersectSegment(ray, s.p1, s.p2); if(hit) hit.obj=this; return hit; }
+            drawShape(ctx) { let s=this.getSeg(); ctx.beginPath(); ctx.moveTo(s.p1.x, s.p1.y); ctx.lineTo(s.p2.x, s.p2.y); ctx.strokeStyle=this.color; ctx.lineWidth=5; ctx.stroke(); }
+        }
+
+        class BeamSplitter extends Mirror {
+            constructor(x,y){ super(x,y); this.type='splitter'; this.color = '#818cf8'; }
+            drawShape(ctx) { let s=this.getSeg(); ctx.beginPath(); ctx.moveTo(s.p1.x, s.p1.y); ctx.lineTo(s.p2.x, s.p2.y); ctx.strokeStyle=this.color; ctx.lineWidth=5; ctx.setLineDash([8,8]); ctx.stroke(); ctx.setLineDash([]); }
+        }
+
+        class ArcMirror extends OpticObj {
+            constructor(x,y){ super(x,y); this.type='arc_mirror'; this.R=120; this.angW=0.9; this.hitRadius = 60; this.color = '#cbd5e1'; }
+            intersect(ray) {
+                let hit = intersectArc(ray, this.pos, this.R, this.rot + Math.PI - this.angW, this.rot + Math.PI + this.angW);
+                if(hit) hit.obj = this; return hit;
+            }
+            drawShape(ctx) {
+                ctx.beginPath(); ctx.arc(this.pos.x, this.pos.y, this.R, this.rot + Math.PI - this.angW, this.rot + Math.PI + this.angW);
+                ctx.strokeStyle=this.color; ctx.lineWidth=5; ctx.stroke();
+            }
+        }
+
+        class GlassBlock extends OpticObj {
+            constructor(x,y){ super(x,y); this.type='glass'; this.w=120; this.h=80; this.n=1.5; this.hitRadius = 60; this.color = '#38bdf8'; }
+            getSegs() {
+                let tl = new Vec2(-this.w/2, -this.h/2).rot(this.rot), bl = new Vec2(-this.w/2, this.h/2).rot(this.rot);
+                let br = new Vec2(this.w/2, this.h/2).rot(this.rot), tr = new Vec2(this.w/2, -this.h/2).rot(this.rot);
+                return [ {p1:this.pos.add(tl),p2:this.pos.add(bl)}, {p1:this.pos.add(bl),p2:this.pos.add(br)}, {p1:this.pos.add(br),p2:this.pos.add(tr)}, {p1:this.pos.add(tr),p2:this.pos.add(tl)} ];
+            }
+            intersect(ray) {
+                let best = null;
+                for(let seg of this.getSegs()) { let hit = intersectSegment(ray, seg.p1, seg.p2); if(hit && (!best || hit.t < best.t)) { best=hit; best.obj=this; } }
+                return best;
+            }
+            drawShape(ctx) {
+                let s = this.getSegs(); ctx.beginPath(); ctx.moveTo(s[0].p1.x, s[0].p1.y);
+                for(let i=1;i<4;i++) ctx.lineTo(s[i].p1.x, s[i].p1.y); ctx.closePath();
+                ctx.globalAlpha = 0.25; ctx.fillStyle=this.color; ctx.fill();
+                ctx.globalAlpha = 1.0; ctx.strokeStyle=this.color; ctx.lineWidth=2; ctx.stroke();
+            }
+        }
+
+        class GlassLens extends OpticObj {
+            constructor(x,y,isConvex){ super(x,y); this.type=isConvex?'lens_convex':'lens_concave'; this.isC=isConvex; this.n=1.5; this.R=150; this.D=isConvex?250:340; this.angW=0.6; this.hitRadius = 70; this.color = '#38bdf8'; }
+            getElems() {
+                let c1 = this.pos.add(new Vec2(this.D/2, 0).rot(this.rot)), c2 = this.pos.add(new Vec2(-this.D/2, 0).rot(this.rot));
+                let a1 = this.rot + Math.PI - this.angW, a2 = this.rot + Math.PI + this.angW, a3 = this.rot - this.angW, a4 = this.rot + this.angW;
+                if(this.isC) return { arcs:[ {c:c1,r:this.R,s:a1,e:a2}, {c:c2,r:this.R,s:a3,e:a4} ], segs:[] };
+                let p1 = c2.add(new Vec2(this.R,0).rot(a3)), p2 = c1.add(new Vec2(this.R,0).rot(a1));
+                let p3 = c2.add(new Vec2(this.R,0).rot(a4)), p4 = c1.add(new Vec2(this.R,0).rot(a2));
+                return { arcs:[ {c:c2,r:this.R,s:a3,e:a4}, {c:c1,r:this.R,s:a1,e:a2} ], segs:[ {p1:p1,p2:p2}, {p1:p3,p2:p4} ] };
+            }
+            intersect(ray) {
+                let els = this.getElems(), best=null;
+                for(let a of els.arcs) { let hit=intersectArc(ray,a.c,a.r,a.s,a.e); if(hit&&(!best||hit.t<best.t)){best=hit; best.obj=this;} }
+                for(let s of els.segs) { let hit=intersectSegment(ray,s.p1,s.p2); if(hit&&(!best||hit.t<best.t)){best=hit; best.obj=this;} }
+                return best;
+            }
+            drawShape(ctx) {
+                let els = this.getElems(); ctx.beginPath();
+                ctx.arc(els.arcs[0].c.x, els.arcs[0].c.y, els.arcs[0].r, els.arcs[0].s, els.arcs[0].e);
+                if(this.isC) ctx.arc(els.arcs[1].c.x, els.arcs[1].c.y, els.arcs[1].r, els.arcs[1].s, els.arcs[1].e);
+                else { ctx.lineTo(els.segs[1].p2.x, els.segs[1].p2.y); ctx.arc(els.arcs[1].c.x, els.arcs[1].c.y, els.arcs[1].r, els.arcs[1].e, els.arcs[1].s, true); ctx.lineTo(els.segs[0].p1.x, els.segs[0].p1.y); }
+                ctx.globalAlpha = 0.25; ctx.fillStyle=this.color; ctx.fill();
+                ctx.globalAlpha = 1.0; ctx.strokeStyle=this.color; ctx.lineWidth=2; ctx.stroke();
+            }
+        }
+
+        class BeamBlocker extends GlassBlock {
+            constructor(x,y){ super(x,y); this.type='blocker'; this.color='#64748b'; }
+            drawShape(ctx) {
+                const segs=this.getSegs(); ctx.beginPath(); ctx.moveTo(segs[0].p1.x,segs[0].p1.y);
+                for(let i=1;i<4;i++) ctx.lineTo(segs[i].p1.x,segs[i].p1.y); ctx.closePath();
+                ctx.fillStyle=this.color; ctx.globalAlpha=0.9; ctx.fill(); ctx.globalAlpha=1;
+                ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=2; ctx.stroke();
+            }
+        }
+
+        class RulerTool extends OpticObj {
+            constructor(x,y){ super(x,y); this.type='ruler'; this.w=500; this.color='#fbbf24'; this.hitRadius=55; }
+            hitTest(x,y){ const m=new Vec2(x,y).sub(this.pos).rot(-this.rot); return Math.abs(m.y)<35 && Math.abs(m.x)<this.w/2+15; }
+            drawShape(ctx){
+                const w=this.w, h=34; ctx.save(); ctx.translate(this.pos.x,this.pos.y); ctx.rotate(this.rot);
+                ctx.fillStyle='rgba(251,191,36,0.14)'; ctx.strokeStyle=this.color; ctx.lineWidth=2;
+                ctx.beginPath(); ctx.rect(-w/2,-h/2,w,h); ctx.fill(); ctx.stroke();
+                for(let x=0;x<=w;x+=10){ const xx=-w/2+x; const major=(x%100===0), mid=(x%50===0); const len=major?15:(mid?10:5); ctx.beginPath(); ctx.moveTo(xx,-h/2); ctx.lineTo(xx,-h/2+len); ctx.stroke();
+                    if(major){ ctx.fillStyle='#fde68a'; ctx.font='12px sans-serif'; ctx.textAlign='center'; ctx.fillText(String(x),xx,h/2-4); }
+                }
+                ctx.fillStyle='#fde68a'; ctx.font='11px sans-serif'; ctx.textAlign='left'; ctx.fillText('unidades',-w/2+5,-h/2-5); ctx.restore();
+            }
+        }
+        class ProtractorTool extends OpticObj {
+            constructor(x,y){ super(x,y); this.type='protractor'; this.R=115; this.color='#fbbf24'; this.hitRadius=135; }
+            hitTest(x,y){ return new Vec2(x,y).sub(this.pos).mag()<this.R+24; }
+            drawShape(ctx){
+                ctx.save(); ctx.translate(this.pos.x,this.pos.y); ctx.rotate(this.rot);
+                ctx.strokeStyle=this.color; ctx.fillStyle='rgba(251,191,36,0.10)'; ctx.lineWidth=2;
+                ctx.beginPath(); ctx.arc(0,0,this.R,0,Math.PI*2); ctx.fill(); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(-this.R,0); ctx.lineTo(this.R,0); ctx.moveTo(0,-this.R); ctx.lineTo(0,this.R); ctx.stroke();
+                for(let deg=0;deg<360;deg+=5){ const a=deg*Math.PI/180, major=deg%30===0, mid=deg%10===0, len=major?15:(mid?9:4); const x1=Math.cos(a)*(this.R-len), y1=Math.sin(a)*(this.R-len), x2=Math.cos(a)*this.R, y2=Math.sin(a)*this.R; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+                    if(major){ const tx=Math.cos(a)*(this.R-29), ty=Math.sin(a)*(this.R-29); ctx.fillStyle='#fde68a'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(deg)+'°',tx,ty); }
+                }
+                ctx.fillStyle=this.color; ctx.beginPath(); ctx.arc(0,0,3,0,Math.PI*2); ctx.fill(); ctx.restore();
+            }
+        }
+
+        class LightSource extends OpticObj {
+            constructor(x,y){ super(x,y); this.type='light'; this.hitRadius = 30; this.color = '#f43f5e'; } 
+            drawShape(ctx) { ctx.beginPath(); ctx.arc(this.pos.x, this.pos.y, 6, 0, Math.PI*2); ctx.fillStyle=this.color; ctx.shadowBlur=15; ctx.shadowColor=this.color; ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle=this.color; ctx.lineWidth=2; ctx.stroke(); if(this.type==='ray' || this.type==='point_angle'){ const d=new Vec2(1,0).rot(this.rot); const end=this.pos.add(d.mul(28)); ctx.beginPath(); ctx.moveTo(this.pos.x,this.pos.y); ctx.lineTo(end.x,end.y); ctx.stroke(); const a=Math.atan2(d.y,d.x), z=7; ctx.beginPath(); ctx.moveTo(end.x,end.y); ctx.lineTo(end.x-Math.cos(a-0.55)*z,end.y-Math.sin(a-0.55)*z); ctx.moveTo(end.x,end.y); ctx.lineTo(end.x-Math.cos(a+0.55)*z,end.y-Math.sin(a+0.55)*z); ctx.stroke(); } }
+        }
+        class SingleRay extends LightSource {
+            constructor(x,y){ super(x,y); this.type='ray'; }
+            getRays() { return [{ o: this.pos, d: new Vec2(1,0).rot(this.rot), n: 1.0, pow: 1.0, dep: 0, color: this.color }]; }
+        }
+        class BeamRay extends LightSource {
+            constructor(x,y){ super(x,y); this.type='beam'; this.w=80; }
+            getRays() {
+                let r=[], d=new Vec2(1,0).rot(this.rot), up=new Vec2(-d.y,d.x);
+                for(let i=0; i<app.beamDensity; i++) r.push({ o: this.pos.add(up.mul(this.w*(app.beamDensity===1?0:i/(app.beamDensity-1) - 0.5))), d: d, n: 1.0, pow: 1.0, dep: 0, color: this.color });
+                return r;
+            }
+            drawShape(ctx) { super.drawShape(ctx); let d=new Vec2(1,0).rot(this.rot), up=new Vec2(-d.y,d.x); let p1=this.pos.add(up.mul(-this.w/2)), p2=this.pos.add(up.mul(this.w/2)); ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.strokeStyle=this.color; ctx.lineWidth=4; ctx.stroke(); }
+        }
+        class PointRay extends LightSource {
+            constructor(x,y){ super(x,y); this.type='point'; }
+            getRays() { let r=[]; for(let i=0; i<36; i++) r.push({ o: this.pos, d: new Vec2(1,0).rot(i*Math.PI/18), n: 1.0, pow: 1.0, dep: 0, color: this.color }); return r; }
+        }
+        class PointRayAngle extends LightSource {
+            constructor(x,y){ super(x,y); this.type='point_angle'; this.angW = Math.PI/4; }
+            getRays() { let r=[]; for(let i=-5; i<=5; i++) r.push({ o: this.pos, d: new Vec2(1,0).rot(this.rot + i*(this.angW/5)), n: 1.0, pow: 1.0, dep: 0, color: this.color }); return r; }
+        }
+
+        // 4. MOTOR PRINCIPAL APP
+        const app = {
+            scene: [], camera: { x: 0, y: 0, scale: 1 },
+            raysToDraw: [], selected: null, drag: null, opticalEvents: [],
+            animating: true, time: 0,
+            showRayArrows: true, showGrid: true, rayGlow: true, rayBrightness: 1, gridSize: 50, beamDensity: 11,
+            history: [], future: [], historyLock: false,
+            
+            // DICCIONARIO DE TOOLTIPS
+            toolDescriptions: {
+                'ray': { title: 'Rayo único', desc: 'Un único rayo de luz definido mediante dos puntos. (Arrastre o clique para crear. El primer punto es la fuente, emitiendo en dirección al segundo punto.)' },
+                'beam': { title: 'Haz', desc: 'Un haz de rayos paralelo o divergente emerge de un segmento de recta, con una densidad controlada por el deslizante "Densidad de haz". (Arrastre o clique para crear.)' },
+                'point': { title: 'Fuente puntual (360°)', desc: 'Los rayos emergen de un único punto, con un número controlado por el deslizante "Densidad de rayos". (Clique para crear.)' },
+                'point_angle': { title: 'Fuente puntual (<360°)', desc: 'Fuente puntual con un ángulo de emisión dado. (Arrastre o clique para crear. El primer punto es la fuente, emitiendo en dirección al segundo punto.)' },
+                'mirror': { title: 'Segmento', desc: 'Simular la reflexión de la luz en un espejo plano. (Arrastre o clique para crear.)' },
+                'arc_mirror': { title: 'Arco circular', desc: 'Un espejo cuya forma es parte de un círculo, el cual está definido por tres puntos. (Arrastre o clique para crear.)' },
+                'splitter': { title: 'Separador de haz', desc: 'Un espejo que transmite una fracción de la luz y refleja el resto (divisor de luz 50/50).' },
+                'glass': { title: 'Semi-plano', desc: 'Simular la refracción y reflexión de la luz en una superficie semi-plana.' },
+                'blocker': { title: 'Bloqueador recto', desc: 'Un bloqueador de luz de tipo segmento de recta que absorbe los rayos incidentes. (Arrastre o clique para crear.)' },
+                'lens_convex': { title: 'Lente convergente', desc: 'Una lente ideal que concentra los rayos que le llegan de forma paralela en su punto focal.' },
+                'lens_concave': { title: 'Lente divergente', desc: 'Una lente ideal que separa (diverge) los rayos de luz paralelos que la atraviesan.' },
+                'ruler': { title: 'Regla', desc: 'Regla a escala graduada de 100 en 100 píxeles para medir distancias. No afecta a la luz.' },
+                'protractor': { title: 'Transportador', desc: 'Transportador de 360 grados con marcas cada 30 grados para verificar ángulos de incidencia y refracción. No afecta a la luz.' }
+            },
+
+            showTooltip(type, event) {
+                const panel = document.getElementById('toolInfoPanel');
+                const title = document.getElementById('toolInfoTitle');
+                const desc = document.getElementById('toolInfoDesc');
+                
+                if(this.toolDescriptions[type]) {
+                    title.innerText = this.toolDescriptions[type].title;
+                    desc.innerText = this.toolDescriptions[type].desc;
+                    
+                    const btnRect = event.target.getBoundingClientRect();
+                    // Coloca el tooltip alineado a la altura del botón que se está haciendo hover
+                    panel.style.top = Math.max(16, btnRect.top) + 'px';
+                    
+                    panel.classList.remove('hidden');
+                    setTimeout(() => panel.classList.remove('opacity-0'), 10);
+                }
+            },
+
+            hideTooltip() {
+                const panel = document.getElementById('toolInfoPanel');
+                panel.classList.add('opacity-0');
+                setTimeout(() => panel.classList.add('hidden'), 200);
+            },
+
+            snapshot() {
+                return JSON.stringify({scene:this.scene.map(o=>({type:o.type,x:o.pos.x,y:o.pos.y,rot:o.rot,color:o.color,w:o.w,h:o.h,n:o.n,R:o.R,D:o.D,angW:o.angW,isC:o.isC})), camera:{...this.camera}});
+            },
+            saveHistory() {
+                if(this.historyLock) return;
+                const snap=this.snapshot();
+                if(this.history[this.history.length-1] !== snap) this.history.push(snap);
+                if(this.history.length>80) this.history.shift();
+                this.future=[]; this.updateHistoryUI();
+            },
+            restoreSnapshot(snap) {
+                const data=JSON.parse(snap); this.historyLock=true; this.scene=[]; this.selected=null;
+                for(const o of data.scene) {
+                    let obj;
+                    if(o.type==='ray') obj=new SingleRay(o.x,o.y); else if(o.type==='beam') obj=new BeamRay(o.x,o.y); else if(o.type==='point') obj=new PointRay(o.x,o.y); else if(o.type==='point_angle') obj=new PointRayAngle(o.x,o.y);
+                    else if(o.type==='mirror') obj=new Mirror(o.x,o.y); else if(o.type==='arc_mirror') obj=new ArcMirror(o.x,o.y); else if(o.type==='splitter') obj=new BeamSplitter(o.x,o.y);
+                    else if(o.type==='glass') obj=new GlassBlock(o.x,o.y); else if(o.type==='blocker') obj=new BeamBlocker(o.x,o.y); else if(o.type==='lens_convex') obj=new GlassLens(o.x,o.y,true); else if(o.type==='lens_concave') obj=new GlassLens(o.x,o.y,false);
+                    else if(o.type==='ruler') obj=new RulerTool(o.x,o.y); else if(o.type==='protractor') obj=new ProtractorTool(o.x,o.y);
+                    if(obj){ Object.assign(obj,{rot:o.rot||0,color:o.color||obj.color}); for(const k of ['w','h','n','R','D','angW','isC']) if(o[k]!==undefined)obj[k]=o[k]; this.scene.push(obj); }
+                }
+                this.camera=data.camera||{x:0,y:0,scale:1}; this.historyLock=false; this.updateUI(); this.updateHistoryUI();
+            },
+            undo() { if(!this.history.length) return; const cur=this.snapshot(); this.future.push(cur); const prev=this.history.pop(); this.restoreSnapshot(prev); },
+            redo() { if(!this.future.length) return; this.history.push(this.snapshot()); const next=this.future.pop(); this.restoreSnapshot(next); },
+            updateHistoryUI() { 
+                const u=document.getElementById('undoBtn'), r=document.getElementById('redoBtn'); 
+                if(u) u.disabled=!this.history.length; 
+                if(r) r.disabled=!this.future.length; 
+            },
+
+            toggleSettings() { const panel=document.getElementById('settingsPanel'); const props=document.getElementById('propertiesPanel'); const wasHidden=panel.classList.contains('hidden'); panel.classList.toggle('hidden'); if(wasHidden) props.classList.add('hidden'); },
+            zoomBy(factor) { this.camera.scale = Math.max(0.2, Math.min(4, this.camera.scale * factor)); },
+            resetView() { this.camera = { x: 0, y: 0, scale: 1 }; },
+            init() {
+                this.canvas = document.getElementById('opticsCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                window.addEventListener('resize', () => this.resize());
+                this.resize();
+
+                const down = e => { if(e.target && e.target.id === 'opticsCanvas') { if(e.cancelable) e.preventDefault(); this.onDown(this.getEventPoint(e)); } };
+                const move = e => { if(this.drag) { e.preventDefault(); this.onMove(this.getEventPoint(e)); }};
+                const up = () => { this.drag = null; };
+
+                window.addEventListener('mousedown', down);
+                window.addEventListener('touchstart', down, {passive: false});
+                window.addEventListener('mousemove', move);
+                window.addEventListener('touchmove', move, {passive: false});
+                window.addEventListener('mouseup', up);
+                window.addEventListener('touchend', up);
+                this.canvas.addEventListener('wheel', e => { e.preventDefault(); this.camera.scale = Math.max(0.2, Math.min(4, this.camera.scale * (e.deltaY < 0 ? 1.1 : 0.9))); }, {passive: false});
+
+                window.addEventListener('keydown', e => {
+                    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase()==='z') { e.preventDefault(); this.undo(); }
+                    if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase()==='y' || (e.shiftKey && e.key.toLowerCase()==='z'))) { e.preventDefault(); this.redo(); }
+                    if (e.key==='Delete' && this.selected) this.deleteSelected();
+                });
+                this.loadPreset('rgb');
+                this.render();
+            },
+
+            resize() { this.canvas.width = window.innerWidth; this.canvas.height = window.innerHeight; },
+            toWorld(x,y) { return new Vec2((x - this.canvas.width/2)/this.camera.scale - this.camera.x, (y - this.canvas.height/2)/this.camera.scale - this.camera.y); },
+            getEventPoint(e) { return (e.touches && e.touches.length > 0) ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : { x: e.clientX, y: e.clientY }; },
+
+            onDown(pt) {
+                const rect = this.canvas.getBoundingClientRect();
+                const cx = pt.x - rect.left, cy = pt.y - rect.top;
+                const m = this.toWorld(cx, cy);
+                
+                if(this.selected) {
+                    let rad = this.selected.type === 'arc_mirror' ? this.selected.R + 35 : (this.selected.w ? this.selected.w/2 : (this.selected.R ? this.selected.R/1.5 : 40));
+                    let h = this.selected.pos.add(new Vec2(rad + 30, 0).rot(this.selected.rot));
+                    if(m.dist(h) < 30) { this.saveHistory(); return this.drag = { mode: 'rot', obj: this.selected }; }
+                }
+                
+                let hit = [...this.scene].reverse().find(o => o.hitTest(m.x, m.y));
+                if(hit) { this.saveHistory(); this.selected = hit; this.drag = { mode: 'move', obj: hit, off: hit.pos.sub(m) }; }
+                else { this.selected = null; this.drag = { mode: 'pan', sx: pt.x, sy: pt.y, cx: this.camera.x, cy: this.camera.y }; }
+                this.updateUI();
+            },
+
+            onMove(pt) {
+                if(!this.drag) return;
+                if(this.drag.mode === 'pan') {
+                    this.camera.x = this.drag.cx + (pt.x - this.drag.sx) / this.camera.scale;
+                    this.camera.y = this.drag.cy + (pt.y - this.drag.sy) / this.camera.scale;
+                } else {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const m = this.toWorld(pt.x - rect.left, pt.y - rect.top);
+                    if(this.drag.mode === 'move') this.drag.obj.pos = m.add(this.drag.off);
+                    else if(this.drag.mode === 'rot') {
+                        this.drag.obj.rot = Math.atan2(m.y - this.drag.obj.pos.y, m.x - this.drag.obj.pos.x);
+                        this.updateUI();
+                    }
+                }
+            },
+
+            addTool(type) {
+                this.saveHistory();
+                let x = -this.camera.x, y = -this.camera.y, o;
+                if(type==='ray') o = new SingleRay(x,y); else if(type==='beam') o = new BeamRay(x,y); else if(type==='point') o = new PointRay(x,y); else if(type==='point_angle') o = new PointRayAngle(x,y);
+                else if(type==='mirror') o = new Mirror(x,y); else if(type==='arc_mirror') o = new ArcMirror(x,y); else if(type==='splitter') o = new BeamSplitter(x,y);
+                else if(type==='glass') o = new GlassBlock(x,y); else if(type==='blocker') o = new BeamBlocker(x,y); else if(type==='lens_convex') o = new GlassLens(x,y,true); else if(type==='lens_concave') o = new GlassLens(x,y,false);
+                else if(type==='ruler') o = new RulerTool(x,y); else if(type==='protractor') o = new ProtractorTool(x,y);
+                if(o) { this.scene.push(o); this.selected = o; this.updateUI(); }
+            },
+            
+            clearScene() { this.saveHistory(); this.scene = []; this.selected = null; this.updateUI(); },
+            deleteSelected() { if(this.selected) { this.saveHistory(); this.scene = this.scene.filter(o => o !== this.selected); this.selected = null; this.updateUI(); } },
+            toggleAnimation() { this.animating = !this.animating; document.getElementById('btnAnim').innerText = this.animating ? "⏸ Pausar Fotones" : "▶ Animar Luz"; },
+
+            loadPreset(type) {
+                this.saveHistory(); this.clearScene(); this.camera = { x: 0, y: 0, scale: 1 };
+                if (type === 'snell') {
+                    let ray = new SingleRay(-250, -150); ray.rot = Math.PI / 5;
+                    let glass = new GlassBlock(100, 150); glass.w = 400; glass.h = 200; glass.n = 1.5;
+                    this.scene.push(ray, glass);
+                } else if (type === 'lens') {
+                    let beam = new BeamRay(-300, 0); let lens = new GlassLens(0, 0, true);
+                    this.scene.push(beam, lens);
+                } else if (type === 'mirror') {
+                    let beam = new BeamRay(-200, -50); beam.rot = Math.PI/12; 
+                    let mirror = new ArcMirror(150, 50); mirror.rot = Math.PI;
+                    this.scene.push(beam, mirror);
+                } else if (type === 'rgb') {
+                    let r1 = new BeamRay(-300, -100); r1.rot = Math.PI/12; r1.color = '#ef4444';
+                    let r2 = new BeamRay(-300, 0); r2.rot = 0; r2.color = '#22c55e';
+                    let r3 = new BeamRay(-300, 100); r3.rot = -Math.PI/12; r3.color = '#3b82f6';
+                    let glass = new GlassLens(150, 0, true); glass.D = 300; glass.n = 1.6; glass.color = '#a855f7';
+                    this.scene.push(r1, r2, r3, glass);
+                }
+                this.updateUI();
+            },
+
+            updateUI() {
+                const p = document.getElementById('propertiesPanel'), c = document.getElementById('prop-controls');
+                if(!this.selected) { p.classList.add('hidden'); this.updateOpticsInfo(); return; }
+                document.getElementById('settingsPanel').classList.add('hidden');
+                p.classList.remove('hidden');
+                
+                let angDeg = (this.selected.rot * 180 / Math.PI).toFixed(1);
+                
+                // Color Picker
+                let h = `
+                <div class="mb-4">
+                    <label class="text-sky-300 font-bold mb-1 block text-xs uppercase tracking-wide">Color</label>
+                    <div class="flex items-center gap-2">
+                        <input type="color" value="${this.selected.color}" class="w-10 h-10 rounded cursor-pointer bg-slate-800"
+                            oninput="app.selected.color = this.value; this.nextElementSibling.innerText = this.value;">
+                        <span class="text-slate-400 text-xs font-mono uppercase">${this.selected.color}</span>
+                    </div>
+                </div>`;
+
+                // Rotación
+                h += `
+                <div>
+                    <label class="text-sky-300 font-bold mb-1 block text-xs uppercase tracking-wide">Ángulo de Rotación (°)</label>
+                    <input type="range" min="-180" max="180" step="1" value="${angDeg}" class="w-full mb-1 cursor-pointer" 
+                        oninput="app.selected.rot = this.value * Math.PI / 180; document.getElementById('rotNum').value = this.value;">
+                    <input type="number" id="rotNum" class="w-full bg-slate-800 text-white p-2 rounded border border-slate-600 focus:border-sky-500 text-center" 
+                        value="${angDeg}" oninput="app.selected.rot = this.value * Math.PI / 180; this.previousElementSibling.value = this.value;">
+                </div>`;
+                
+                if(this.selected instanceof LightSource) {
+                    h += `<div class="mt-3">
+                        <label class="text-sky-300 font-bold mb-1 block text-xs uppercase tracking-wide">Dirección de la luz (°)</label>
+                        <input type="number" min="-360" max="360" step="1" value="${angDeg}" class="w-full bg-slate-800 text-white p-2 rounded border border-slate-600 text-center"
+                          oninput="if(Number.isFinite(Number(this.value))){app.selected.rot=Number(this.value)*Math.PI/180;const r=document.getElementById('directionRange');if(r)r.value=Math.max(-180,Math.min(180,Number(this.value)));}">
+                        <input id="directionRange" type="range" min="-180" max="180" step="1" value="${Math.max(-180,Math.min(180,Number(angDeg)))}" class="w-full mt-2" oninput="app.selected.rot=Number(this.value)*Math.PI/180;this.previousElementSibling.value=this.value">
+                        <p class="text-xs text-slate-400">0° derecha · 90° abajo · 180° izquierda · −90° arriba</p>
+                    </div>`;
+                }
+
+                if(this.selected.n !== undefined) {
+                    h += `<div class="mt-4">
+                            <label class="text-sky-300 font-bold mb-1 block text-xs uppercase tracking-wide">Índice Refracción (n)</label>
+                            <input type="range" min="1" max="5" step="0.01" value="${this.selected.n}" class="w-full cursor-pointer" 
+                                oninput="app.selected.n = parseFloat(this.value); this.nextElementSibling.innerText=this.value">
+                            <div class="text-center font-bold text-teal-400 mt-1">${this.selected.n}</div>
+                          </div>`;
+                }
+
+                if(this.selected.w !== undefined && this.selected.type !== 'beam') {
+                    h += `<div class="mt-4">
+                            <label class="text-sky-300 font-bold mb-1 block text-xs uppercase tracking-wide">Ancho</label>
+                            <input type="range" min="20" max="800" step="5" value="${this.selected.w}" class="w-full cursor-pointer" 
+                                oninput="app.selected.w = parseFloat(this.value); this.nextElementSibling.innerText=this.value+' px'">
+                            <div class="text-center font-bold text-teal-400 mt-1">${this.selected.w} px</div>
+                          </div>`;
+                }
+                
+                if(this.selected.h !== undefined) {
+                    h += `<div class="mt-4">
+                            <label class="text-sky-300 font-bold mb-1 block text-xs uppercase tracking-wide">Alto</label>
+                            <input type="range" min="20" max="800" step="5" value="${this.selected.h}" class="w-full cursor-pointer" 
+                                oninput="app.selected.h = parseFloat(this.value); this.nextElementSibling.innerText=this.value+' px'">
+                            <div class="text-center font-bold text-teal-400 mt-1">${this.selected.h} px</div>
+                          </div>`;
+                }
+
+                if(this.selected.type === 'arc_mirror') {
+                    h += `<p class="text-amber-300 text-xs">Arrastra el espejo para moverlo. Para orientarlo, arrastra el punto naranja situado fuera del arco o cambia el ángulo.</p>`;
+                }
+                if(this.selected.R !== undefined) {
+                    h += `<div class="mt-4">
+                            <label class="text-sky-300 font-bold mb-1 block text-xs uppercase tracking-wide">Radio (Curvatura)</label>
+                            <input type="range" min="30" max="600" step="5" value="${this.selected.R}" class="w-full cursor-pointer" 
+                                oninput="app.selected.R = parseFloat(this.value); this.nextElementSibling.innerText=this.value+' px'">
+                            <div class="text-center font-bold text-teal-400 mt-1">${this.selected.R} px</div>
+                          </div>`;
+                }
+
+                if(this.selected.D !== undefined) {
+                    h += `<div class="mt-4">
+                            <label class="text-sky-300 font-bold mb-1 block text-xs uppercase tracking-wide">Grosor (D)</label>
+                            <input type="range" min="20" max="600" step="5" value="${this.selected.D}" class="w-full cursor-pointer" 
+                                oninput="app.selected.D = parseFloat(this.value); this.nextElementSibling.innerText=this.value+' px'">
+                            <div class="text-center font-bold text-teal-400 mt-1">${this.selected.D} px</div>
+                          </div>`;
+                }
+
+                if(this.selected.angW !== undefined) {
+                    let apDeg = (this.selected.angW * 180 / Math.PI).toFixed(0);
+                    h += `<div class="mt-4">
+                            <label class="text-sky-300 font-bold mb-1 block text-xs uppercase tracking-wide">Apertura Angular</label>
+                            <input type="range" min="10" max="170" step="1" value="${apDeg}" class="w-full cursor-pointer" 
+                                oninput="app.selected.angW = parseFloat(this.value) * Math.PI / 180; this.nextElementSibling.innerText=this.value+'°'">
+                            <div class="text-center font-bold text-teal-400 mt-1">${apDeg}°</div>
+                          </div>`;
+                }
+
+                c.innerHTML = h;
+            },
+
+            trace(ray) {
+                const EPS = 0.35;
+                let stack = [{...ray, d: ray.d.norm()}], iters = 0;
+                while(stack.length > 0 && iters++ < 1400) {
+                    let r = stack.shift();
+                    if(r.pow < 0.012 || r.dep > 14) continue;
+                    let closest = null;
+                    for(const obj of this.scene) {
+                        if(obj instanceof LightSource || obj.type === 'ruler' || obj.type === 'protractor') continue;
+                        const hit = obj.intersect(r);
+                        if(hit && hit.t > 0.5 && (!closest || hit.t < closest.t)) closest = hit;
+                    }
+                    if(!closest) {
+                        this.raysToDraw.push({p1:r.o,p2:r.o.add(r.d.mul(3000)),n:r.n,pow:r.pow,color:r.color});
+                        continue;
+                    }
+                    const pt = closest.p;
+                    let norm = closest.normal.norm();
+                    if(r.d.dot(norm) > 0) norm = norm.mul(-1);
+                    this.raysToDraw.push({p1:r.o,p2:pt,n:r.n,pow:r.pow,color:r.color});
+                    const obj = closest.obj, type = obj.type;
+                    const cosI = Math.max(0, Math.min(1, -r.d.dot(norm)));
+                    const incidence = Math.acos(cosI) * 180 / Math.PI;
+                    const nextOrigin = d => pt.add(d.mul(EPS));
+                    const addEvent = (kind, label, extra='') => this.opticalEvents.push({kind,label,extra,x:pt.x,y:pt.y,angle:incidence});
+
+                    if(type === 'blocker') {
+                        addEvent('absorcion','Absorción','El bloqueador absorbe el rayo; no hay rayo transmitido.');
+                        continue;
+                    }
+                    if(type === 'mirror' || type === 'arc_mirror') {
+                        const dOut = reflect(r.d,norm).norm();
+                        addEvent('reflexion','Reflexión en espejo',`Ángulo de incidencia ≈ ${incidence.toFixed(1)}°. La ley de reflexión establece θᵢ = θᵣ.`);
+                        stack.push({o:nextOrigin(dOut),d:dOut,n:r.n,pow:r.pow,dep:r.dep+1,color:r.color});
+                        continue;
+                    }
+                    if(type === 'splitter') {
+                        const reflected = reflect(r.d,norm).norm();
+                        addEvent('division','División del haz','El divisor produce un rayo reflejado y otro transmitido (modelo 50/50).');
+                        stack.push({o:nextOrigin(reflected),d:reflected,n:r.n,pow:r.pow*0.5,dep:r.dep+1,color:r.color});
+                        stack.push({o:nextOrigin(r.d),d:r.d,n:r.n,pow:r.pow*0.5,dep:r.dep+1,color:r.color});
+                        continue;
+                    }
+                    if(type === 'glass' || type === 'lens_convex' || type === 'lens_concave') {
+                        const n1 = r.n || 1.0;
+                        const entering = r.insideObj !== obj;
+                        const n2 = entering ? (obj.n || 1.5) : 1.0;
+                        const dRefr = refract(r.d,norm,n1,n2);
+                        if(!dRefr) {
+                            const dRef = reflect(r.d,norm).norm();
+                            addEvent('reflexion-interna','Reflexión interna total',`La luz intenta pasar de n=${n1.toFixed(2)} a n=${n2.toFixed(2)}, pero supera el ángulo crítico y rebota dentro del medio.`);
+                            stack.push({o:nextOrigin(dRef),d:dRef,n:n1,insideObj:r.insideObj||null,pow:r.pow,dep:r.dep+1,color:r.color});
+                            continue;
+                        }
+                        const dT = dRefr.norm();
+                        const cosT = Math.max(0,Math.min(1,-dT.dot(norm)));
+                        const rsDen = n1*cosI + n2*cosT;
+                        const rpDen = n1*cosT + n2*cosI;
+                        const Rs = Math.abs(rsDen) < 1e-8 ? 1 : ((n1*cosI-n2*cosT)/rsDen)**2;
+                        const Rp = Math.abs(rpDen) < 1e-8 ? 1 : ((n1*cosT-n2*cosI)/rpDen)**2;
+                        const reflectance = Math.max(0.02,Math.min(0.95,(Rs+Rp)/2));
+                        const dRef = reflect(r.d,norm).norm();
+                        addEvent('refraccion','Refracción en vidrio/lente',`Ley de Snell: n₁ sen(θ₁)=n₂ sen(θ₂). n₁=${n1.toFixed(2)}, n₂=${n2.toFixed(2)}; incidencia ≈ ${incidence.toFixed(1)}°. También se refleja una fracción de la luz.`);
+                        if(r.pow*reflectance > 0.015) {
+                            stack.push({o:nextOrigin(dRef),d:dRef,n:n1,insideObj:r.insideObj||null,pow:r.pow*reflectance,dep:r.dep+1,color:r.color});
+                        }
+                        stack.push({o:nextOrigin(dT),d:dT,n:n2,insideObj:entering?obj:null,pow:r.pow*(1-reflectance),dep:r.dep+1,color:r.color});
+                    }
+                }
+            },
+            render() {
+                try {
+                    this.ctx.fillStyle = '#0f172a'; this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                    this.ctx.save();
+                    this.ctx.translate(this.canvas.width/2, this.canvas.height/2);
+                    this.ctx.scale(this.camera.scale, this.camera.scale);
+                    this.ctx.translate(this.camera.x, this.camera.y);
+
+                    if(this.showGrid) {
+                        this.ctx.strokeStyle = 'rgba(255,255,255,0.07)'; this.ctx.lineWidth = 1/this.camera.scale;
+                        let s = this.gridSize;
+                        let vW = this.canvas.width / this.camera.scale, vH = this.canvas.height / this.camera.scale;
+                        let sX = Math.floor((-vW/2 - this.camera.x)/s)*s, sY = Math.floor((-vH/2 - this.camera.y)/s)*s;
+                        this.ctx.beginPath();
+                        for(let x=sX-s; x<sX+vW+2*s; x+=s) { this.ctx.moveTo(x, sY-s); this.ctx.lineTo(x, sY+vH+2*s); }
+                        for(let y=sY-s; y<sY+vH+2*s; y+=s) { this.ctx.moveTo(sX-s, y); this.ctx.lineTo(sX+vW+2*s, y); }
+                        this.ctx.stroke();
+                        this.ctx.strokeStyle='rgba(56,189,248,0.18)'; this.ctx.beginPath();
+                        this.ctx.moveTo(-vW,0); this.ctx.lineTo(vW,0); this.ctx.moveTo(0,-vH); this.ctx.lineTo(0,vH); this.ctx.stroke();
+                    }
+
+                    this.raysToDraw = []; this.opticalEvents = [];
+                    for(let obj of this.scene) if(obj instanceof LightSource) for(let r of obj.getRays()) this.trace(r);
+
+                    if(this.animating) this.time += 1;
+                    
+                    for(let seg of this.raysToDraw) {
+                        this.ctx.globalAlpha = Math.min(1, Math.max(0.05, seg.pow * this.rayBrightness));
+                        this.ctx.strokeStyle = seg.color;
+                        if(this.animating) {
+                            let speed = 40 / seg.n; 
+                            this.ctx.setLineDash([5, 25]); this.ctx.lineDashOffset = -(this.time * speed);
+                            this.ctx.lineCap = 'round'; this.ctx.lineWidth = 4 / this.camera.scale;
+                        } else {
+                            this.ctx.setLineDash([]); this.ctx.lineWidth = 2 / this.camera.scale;
+                        }
+                        this.ctx.beginPath(); this.ctx.moveTo(seg.p1.x, seg.p1.y); this.ctx.lineTo(seg.p2.x, seg.p2.y); 
+                        this.ctx.shadowBlur = this.rayGlow ? 10 : 0; this.ctx.shadowColor = seg.color;
+                        this.ctx.stroke();
+                        if(this.showRayArrows) {
+                            const dx=seg.p2.x-seg.p1.x, dy=seg.p2.y-seg.p1.y, len=Math.hypot(dx,dy);
+                            if(len>25) {
+                                const t=0.62, ax=seg.p1.x+dx*t, ay=seg.p1.y+dy*t, ang=Math.atan2(dy,dx), size=8/this.camera.scale;
+                                this.ctx.beginPath(); this.ctx.moveTo(ax+Math.cos(ang)*size,ay+Math.sin(ang)*size);
+                                this.ctx.lineTo(ax+Math.cos(ang+2.55)*size,ay+Math.sin(ang+2.55)*size);
+                                this.ctx.lineTo(ax+Math.cos(ang-2.55)*size,ay+Math.sin(ang-2.55)*size);
+                                this.ctx.closePath(); this.ctx.fillStyle=seg.color; this.ctx.fill();
+                            }
+                        }
+                        this.ctx.globalAlpha = 1.0; this.ctx.shadowBlur = 0;
+                    }
+                    this.ctx.setLineDash([]); this.ctx.lineCap = 'butt';
+                    this.updateOpticsInfo();
+
+                    for(let obj of this.scene) {
+                        obj.drawShape(this.ctx);
+                        if(obj === this.selected) {
+                            let rad = obj.type === 'arc_mirror' ? obj.R + 35 : (obj.w ? obj.w/2 : (obj.R ? obj.R/1.5 : 40));
+                            let h = obj.pos.add(new Vec2(rad + 30, 0).rot(obj.rot));
+                            this.ctx.beginPath(); this.ctx.moveTo(obj.pos.x, obj.pos.y); this.ctx.lineTo(h.x, h.y); this.ctx.strokeStyle='#f59e0b'; this.ctx.lineWidth=2/this.camera.scale; this.ctx.stroke();
+                            this.ctx.beginPath(); this.ctx.arc(h.x, h.y, 8/this.camera.scale, 0, Math.PI*2); this.ctx.fillStyle='#f59e0b'; this.ctx.fill();
+                            this.ctx.beginPath(); this.ctx.arc(obj.pos.x, obj.pos.y, 14/this.camera.scale, 0, Math.PI*2); this.ctx.stroke();
+                        }
+                    }
+                    this.ctx.restore();
+                } catch(e) { console.error(e); }
+                requestAnimationFrame(() => this.render());
+            },
+
+            updateOpticsInfo() {
+                const el = document.getElementById('opticsInfoText');
+                const status = document.getElementById('opticsEventStatus');
+                if(!el) return;
+                if(!this.opticalEvents.length) {
+                    if(status) status.textContent = 'Sin interacción detectada';
+                    el.innerHTML = 'Coloca una fuente de luz y pon un espejo, vidrio, lente o bloqueador en su trayectoria. Selecciona y arrastra los objetos para moverlos; usa el punto naranja o el control de ángulo para orientarlos. Aquí aparecerá el fenómeno que se está aplicando. En ‘Otros’ puedes añadir una regla graduada de 100 en 100 o un transportador de 360° con marcas cada 30°; arrástralos para colocarlos. Las herramientas de medición no alteran la luz.';
+                    return;
+                }
+                const latest = this.opticalEvents[this.opticalEvents.length-1];
+                const counts = {};
+                for(const ev of this.opticalEvents) counts[ev.kind] = (counts[ev.kind]||0)+1;
+                if(status) status.textContent = 'Interacción detectada: ' + latest.label;
+                const summary = [];
+                if(counts.reflexion) summary.push(`Reflexión: ${counts.reflexion}`);
+                if(counts.refraccion) summary.push(`Refracción: ${counts.refraccion}`);
+                if(counts['reflexion-interna']) summary.push(`Reflexión interna total: ${counts['reflexion-interna']}`);
+                if(counts.division) summary.push(`División: ${counts.division}`);
+                if(counts.absorcion) summary.push(`Absorción: ${counts.absorcion}`);
+                el.innerHTML = `<div class="font-bold text-amber-300 mb-1">${latest.label}</div><div>${latest.extra}</div><div class="mt-2 text-slate-400">${summary.join(' · ')}</div>`;
+            },
+            saveScene() {
+                const info = document.getElementById('opticsInfoText');
+                const status = document.getElementById('opticsEventStatus');
+                const data = {
+                    format: 'laboratorio-virtual-luz',
+                    version: 2,
+                    savedAt: new Date().toISOString(),
+                    cam: { ...this.camera },
+                    objs: this.scene.map(o => ({
+                        type: o.type, x: o.pos.x, y: o.pos.y, rot: o.rot,
+                        n: o.n, isC: o.isC, w: o.w, h: o.h, R: o.R,
+                        D: o.D, angW: o.angW, color: o.color
+                    })),
+                    explanation: {
+                        status: status ? status.textContent : 'Sin interacción detectada',
+                        html: info ? info.innerHTML : 'Coloca una fuente de luz y un elemento óptico para observar qué sucede.'
+                    }
+                };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'laboratorio_virtual_de_la_luz.json';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            },
+            saveNotes() {
+                const info = document.getElementById('opticsInfoText');
+                const status = document.getElementById('opticsEventStatus');
+                const cleanText = (html) => {
+                    const box = document.createElement('div');
+                    box.innerHTML = html || '';
+                    return (box.innerText || box.textContent || '').trim();
+                };
+                const names = {
+                    ray: 'Rayo individual', beam: 'Haz de luz', point: 'Fuente puntual', point_angle: 'Fuente angular',
+                    mirror: 'Espejo plano', arc_mirror: 'Espejo curvo', splitter: 'Divisor de haz', glass: 'Bloque de vidrio',
+                    blocker: 'Bloqueador', lens_convex: 'Lente convergente', lens_concave: 'Lente divergente', ruler: 'Regla', protractor: 'Transportador'
+                };
+                const lines = [
+                    'LABORATORIO VIRTUAL DE LA LUZ',
+                    'Simulador de óptica geométrica',
+                    'Fecha de guardado: ' + new Date().toLocaleString(),
+                    '',
+                    'EXPLICACIÓN DEL FENÓMENO ÓPTICO',
+                    'Estado: ' + (status ? status.textContent : 'Sin interacción detectada'),
+                    cleanText(info ? info.innerHTML : 'No hay explicación disponible.'),
+                    '',
+                    'OBJETOS COLOCADOS EN EL SIMULADOR',
+                    'Cantidad de objetos: ' + this.scene.length
+                ];
+                this.scene.forEach((o, i) => {
+                    lines.push(`${i + 1}. ${names[o.type] || o.type} | posición: (${Number(o.pos.x).toFixed(1)}, ${Number(o.pos.y).toFixed(1)}) | orientación: ${Number(o.rot || 0).toFixed(2)} rad | color: ${o.color || 'predeterminado'}`);
+                    if (o.n !== undefined) lines.push('   Índice de refracción: ' + o.n);
+                    if (o.w !== undefined || o.h !== undefined) lines.push(`   Dimensiones: ancho ${o.w ?? 'N/D'}, alto ${o.h ?? 'N/D'}`);
+                });
+                lines.push('', 'Nota: este archivo es un reporte de texto; para volver a cargar y editar la escena utiliza la opción JSON.');
+                const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = 'reporte_optica_geometrica.txt';
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            },
+            saveImage() {
+                const canvas = document.getElementById('opticsCanvas');
+                if (!canvas) { alert('No se encontró el área de simulación.'); return; }
+                try {
+                    canvas.toBlob((blob) => {
+                        if (!blob) { alert('No se pudo crear la imagen. Intenta nuevamente.'); return; }
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; a.download = 'simulacion_optica.png';
+                        document.body.appendChild(a); a.click(); a.remove();
+                        setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    }, 'image/png');
+                } catch (err) {
+                    alert('No se pudo exportar la imagen de la simulación.');
+                    console.error(err);
+                }
+            },
+            loadScene(e) {
+                const f = e.target.files && e.target.files[0];
+                if (!f) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const d = JSON.parse(ev.target.result);
+                        const objects = Array.isArray(d.objs) ? d.objs : (Array.isArray(d.scene) ? d.scene : null);
+                        if (!objects) throw new Error('El archivo no contiene una escena válida.');
+                        this.scene = [];
+                        for (const o of objects) {
+                            let obj = null;
+                            if (o.type === 'ray') obj = new SingleRay(o.x, o.y);
+                            else if (o.type === 'beam') obj = new BeamRay(o.x, o.y);
+                            else if (o.type === 'point') obj = new PointRay(o.x, o.y);
+                            else if (o.type === 'point_angle') obj = new PointRayAngle(o.x, o.y);
+                            else if (o.type === 'mirror') obj = new Mirror(o.x, o.y);
+                            else if (o.type === 'arc_mirror') obj = new ArcMirror(o.x, o.y);
+                            else if (o.type === 'splitter') obj = new BeamSplitter(o.x, o.y);
+                            else if (o.type === 'glass') obj = new GlassBlock(o.x, o.y);
+                            else if (o.type === 'blocker') obj = new BeamBlocker(o.x, o.y);
+                            else if (o.type === 'lens_convex') obj = new GlassLens(o.x, o.y, true);
+                            else if (o.type === 'lens_concave') obj = new GlassLens(o.x, o.y, false);
+                            else if (o.type === 'ruler') obj = new RulerTool(o.x, o.y);
+                            else if (o.type === 'protractor') obj = new ProtractorTool(o.x, o.y);
+                            if (obj) {
+                                if (o.rot !== undefined) obj.rot = o.rot;
+                                if (o.n !== undefined) obj.n = o.n;
+                                if (o.color) obj.color = o.color;
+                                for (const key of ['w', 'h', 'R', 'D', 'angW']) if (o[key] !== undefined) obj[key] = o[key];
+                                if (o.isC !== undefined) obj.isC = o.isC;
+                                this.scene.push(obj);
+                            }
+                        }
+                        this.camera = d.cam || d.camera || { x: 0, y: 0, scale: 1 };
+                        this.selected = null;
+                        this.opticalEvents = [];
+                        this.updateUI();
+                        this.updateHistoryUI();
+                        // La explicación se guarda en el JSON y se muestra al cargarlo;
+                        // el simulador vuelve a calcularla en el siguiente trazado de rayos.
+                        if (d.explanation) {
+                            const info = document.getElementById('opticsInfoText');
+                            const status = document.getElementById('opticsEventStatus');
+                            if (info && typeof d.explanation.html === 'string') info.innerHTML = d.explanation.html;
+                            if (status && typeof d.explanation.status === 'string') status.textContent = d.explanation.status;
+                        }
+                    } catch (err) {
+                        alert('No se pudo cargar el archivo. Verifica que sea un JSON exportado por el Laboratorio Virtual de la Luz.');
+                        console.error(err);
+                    } finally {
+                        e.target.value = '';
+                    }
+                };
+                reader.readAsText(f);
+            }
+        };
+
+        function switchTab(tabId) {
+            // Mostrar explícitamente una sola sección. Esto evita que una regla CSS antigua
+            // deje visible Guardar/Cargar aunque se pulse Evaluación.
+            document.querySelectorAll('.tab-content').forEach(el => {
+                el.classList.remove('active');
+                el.style.display = 'none';
+                el.setAttribute('aria-hidden', 'true');
+            });
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+            const panel = document.getElementById(tabId);
+            const navButton = document.getElementById('tab-' + tabId);
+            if (!panel || !navButton) return;
+            panel.classList.add('active');
+            panel.style.display = tabId === 'simulador' ? 'block' : 'block';
+            panel.setAttribute('aria-hidden', 'false');
+            navButton.classList.add('active');
+            if (tabId === 'teoria' || tabId === 'quiz' || tabId === 'datos') panel.scrollTop = 0;
+            if (tabId === 'quiz' && !quizEngine.graded && quizEngine.qData.length === 0) quizEngine.init();
+        }
+
+        const quizEngine = {
+            bank: [
+              {q:'¿Qué describe mejor la luz?',a:'Radiación electromagnética que transporta energía',opts:['Una onda sonora','Radiación electromagnética que transporta energía','Una corriente de aire','Materia que siempre necesita un medio']},
+              {q:'¿Cuál es la velocidad aproximada de la luz en el vacío?',a:'3.00 × 10⁸ m/s',opts:['340 m/s','3.00 × 10⁶ m/s','3.00 × 10⁸ m/s','1500 m/s']},
+              {q:'En la relación c = fλ, ¿qué representa λ?',a:'Longitud de onda',opts:['Frecuencia','Longitud de onda','Índice de refracción','Distancia focal']},
+              {q:'¿En qué unidad se mide la frecuencia?',a:'Hertz (Hz)',opts:['Metros','Segundos','Hertz (Hz)','Dioptrías']},
+              {q:'Si aumenta el índice de refracción de un medio, la velocidad de la luz en él normalmente…',a:'Disminuye',opts:['Aumenta','Disminuye','Se vuelve infinita','No puede cambiar nunca']},
+              {q:'¿Qué ley establece que el ángulo de incidencia es igual al de reflexión?',a:'Ley de reflexión',opts:['Ley de Snell','Ley de reflexión','Ley de gravitación','Ley de Ohm']},
+              {q:'¿Desde qué línea se miden los ángulos de incidencia y reflexión?',a:'La normal a la superficie',opts:['La superficie misma','La normal a la superficie','El rayo reflejado solamente','El horizonte']},
+              {q:'¿Qué fenómeno ocurre cuando la luz cambia de dirección al pasar entre medios?',a:'Refracción',opts:['Reflexión','Absorción total','Refracción','Conducción']},
+              {q:'¿Qué expresión corresponde a la ley de Snell?',a:'n₁ sen θ₁ = n₂ sen θ₂',opts:['θᵢ = θᵣ','n₁ sen θ₁ = n₂ sen θ₂','v = d/t','f = R/2']},
+              {q:'¿Qué puede ocurrir cuando la luz pasa del núcleo de una fibra al revestimiento y supera el ángulo crítico?',a:'Reflexión interna total',opts:['Reflexión interna total','Se convierte en sonido','Siempre se absorbe toda','Desaparece la frecuencia']},
+              {q:'En una fibra óptica, ¿qué transporta la información?',a:'Pulsos de luz',opts:['Pulsos de luz','Ondas de agua','Partículas de polvo','Ondas sísmicas']},
+              {q:'¿Qué imagen forma un espejo plano?',a:'Virtual, derecha y del mismo tamaño',opts:['Siempre real y aumentada','Virtual, derecha y del mismo tamaño','Siempre invertida y menor','No forma imagen']},
+              {q:'¿Qué tipo de espejo suele concentrar rayos paralelos?',a:'Espejo cóncavo',opts:['Espejo plano','Espejo convexo','Espejo cóncavo','Todos por igual']},
+              {q:'En la ecuación del espejo, ¿qué representa f?',a:'Distancia focal',opts:['Frecuencia','Distancia focal','Índice del medio','Aumento']},
+              {q:'¿Qué tipo de lente concentra rayos paralelos en un foco?',a:'Convergente',opts:['Divergente','Opaca','Convergente','Plana siempre']},
+              {q:'¿Qué sucede con los rayos paralelos al atravesar una lente divergente ideal?',a:'Se separan como si procedieran de un foco',opts:['Se concentran en un foco real del lado opuesto','Se separan como si procedieran de un foco','Se detienen siempre','Se reflejan todos']},
+              {q:'En m = −di/do, ¿qué representa m?',a:'Aumento lateral',opts:['Aumento lateral','Índice de refracción','Radio de curvatura','Frecuencia']},
+              {q:'¿Cuáles son los dos componentes ópticos básicos de un telescopio astronómico sencillo?',a:'Objetivo y ocular',opts:['Espejo y fibra','Objetivo y ocular','Prisma y altavoz','Láser y detector únicamente']},
+              {q:'Un telescopio tiene fo = 600 mm y fe = 20 mm. ¿Cuál es la magnitud de su aumento angular?',a:'30×',opts:['3×','20×','30×','620×']},
+              {q:'¿Qué representa el signo negativo en M = −fo/fe en el modelo telescópico usual?',a:'La imagen aparece invertida',opts:['La luz no entra al telescopio','La imagen aparece invertida','El objetivo no tiene foco','El aumento es siempre cero']}
+            ],
+            qData: [], graded: false, lastQuestionSet: '',
+            init() {
+              this.graded = false;
+              const container = document.getElementById('quizContainer');
+              if (!container) return;
+              container.innerHTML = '';
+              // Escoge cinco preguntas nuevas; evita repetir exactamente la ronda anterior.
+              let chosen = [];
+              let signature = '';
+              for (let attempt = 0; attempt < 30; attempt++) {
+                chosen = [...this.bank].sort(() => Math.random() - 0.5).slice(0, 5);
+                signature = chosen.map(q => this.bank.indexOf(q)).sort((a,b)=>a-b).join(',');
+                if (signature !== this.lastQuestionSet) break;
+              }
+              this.lastQuestionSet = signature;
+              this.qData = chosen.map(q => ({...q, opts:[...q.opts].sort(() => Math.random() - 0.5)}));
+              this.qData.forEach((qObj,index) => {
+                let html = `<section class="bg-slate-800 p-5 md:p-6 rounded-lg border border-slate-700 shadow-md" id="qb-${index}"><p class="font-bold text-teal-300 mb-4">${index+1}. ${qObj.q}</p>`;
+                qObj.opts.forEach(opt => { html += `<label class="block mb-2 p-3 rounded bg-slate-700 hover:bg-slate-600 cursor-pointer transition"><input type="radio" name="q${index}" value="${opt}" class="mr-2" onchange="quizEngine.updateProgress()"> ${opt}</label>`; });
+                container.insertAdjacentHTML('beforeend',html+'</section>');
+              });
+              const result = document.getElementById('quizResult');
+              result.className = 'mt-6 text-center text-xl font-bold hidden p-6 rounded-lg transition-all';
+              result.textContent = '';
+              const mikuBubble = document.getElementById('quizMikuBubble');
+              if (mikuBubble) {
+                mikuBubble.textContent = '¡Ánimo! Tú puedes. Lee con calma y confía en lo que sabes.';
+                mikuBubble.className = 'w-full rounded-2xl border border-cyan-300/40 bg-slate-800 px-4 py-4 text-base md:text-lg font-bold text-cyan-100 shadow-lg transition-all';
+              }
+              document.getElementById('quizGradeBtn').classList.remove('hidden');
+              document.getElementById('quizRepeatBtn').classList.add('hidden');
+              this.updateProgress();
+            },
+            updateProgress() {
+              if (this.graded) return;
+              const answered = this.qData.filter((q,i)=>document.querySelector(`input[name="q${i}"]:checked`)).length;
+              document.getElementById('quizProgress').style.width = (answered / 5 * 100) + '%';
+              document.getElementById('quizProgressText').textContent = `${answered} de 5 respondidas`;
+            },
+            grade() {
+              if (this.graded) return;
+              this.graded = true;
+              let score = 0;
+              this.qData.forEach((qObj,index) => {
+                const block = document.getElementById(`qb-${index}`);
+                const selected = document.querySelector(`input[name="q${index}"]:checked`);
+                const correct = !!selected && selected.value === qObj.a;
+                if (correct) score++;
+                block.classList.remove('border-green-500','border-red-500');
+                block.classList.add(correct ? 'border-green-500' : 'border-red-500');
+                block.querySelectorAll('input').forEach(input => { input.disabled = true; });
+                block.querySelectorAll('label').forEach(label => { label.classList.remove('cursor-pointer','hover:bg-slate-600'); label.classList.add('cursor-default'); });
+                const feedback = document.createElement('p');
+                feedback.className = 'mt-4 p-3 rounded text-sm ' + (correct ? 'bg-emerald-900/40 text-emerald-300' : 'bg-amber-900/40 text-amber-200');
+                feedback.textContent = (correct ? '✓ Correcto. ' : selected ? '✗ Incorrecto. ' : 'Sin responder. ') + 'Respuesta correcta: ' + qObj.a;
+                block.appendChild(feedback);
+              });
+              const progress = document.getElementById('quizProgress');
+              progress.style.width = '100%';
+              document.getElementById('quizProgressText').textContent = 'Evaluación finalizada · 5 de 5';
+              const res = document.getElementById('quizResult');
+              res.className = `mt-6 text-center text-xl font-bold p-5 rounded-lg ${score >= 3 ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-500' : 'bg-rose-900/50 text-rose-300 border border-rose-500'}`;
+              res.textContent = `Calificación final: ${score} / 5 (${Math.round(score / 5 * 100)}%). Las respuestas correctas aparecen debajo de cada pregunta.`;
+              const mikuBubble = document.getElementById('quizMikuBubble');
+              if (mikuBubble) {
+                if (score >= 3) {
+                  mikuBubble.textContent = score === 5 ? '¡MUY BIEN, GENIAL! ¡Lo hiciste perfecto! Sigue así, vas increíble. ✨' : '¡Muy bien, genial! 🎉 Vas por buen camino. Sigue practicando para dominar todavía más la óptica.';
+                  mikuBubble.className = 'w-full rounded-2xl border border-emerald-400/50 bg-emerald-950/70 px-4 py-4 text-base md:text-lg font-bold text-emerald-200 shadow-lg transition-all';
+                } else {
+                  mikuBubble.textContent = '¡No te desanimes! 💙 Inténtalo de nuevo, sí se puede. Repasa las respuestas y vuelve a intentarlo; ¡yo creo en ti!';
+                  mikuBubble.className = 'w-full rounded-2xl border border-amber-400/50 bg-amber-950/70 px-4 py-4 text-base md:text-lg font-bold text-amber-100 shadow-lg transition-all';
+                }
+              }
+              document.getElementById('quizGradeBtn').classList.add('hidden');
+              document.getElementById('quizRepeatBtn').classList.remove('hidden');
+              res.scrollIntoView({behavior:'smooth', block:'nearest'});
+            }
+        };
+        window.app = app;
+        // Estado inicial consistente con la pestaña Simulador.
+        document.querySelectorAll('.tab-content').forEach(el => {
+            el.style.display = el.id === 'simulador' ? 'block' : 'none';
+            el.setAttribute('aria-hidden', el.id === 'simulador' ? 'false' : 'true');
+        });
+        app.init();
+        quizEngine.init();
+    </script>
+</body>
+</html>
